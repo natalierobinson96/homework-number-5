@@ -1,0 +1,158 @@
+---
+title: "homework-number-5"
+author: "Natalie Robinson"
+date: "November 17, 2017"
+output: html_document
+---
+
+# Homework 5
+
+## Bootstrapping Standard Errors and CIs for Linear Models
+
+** 1. Using the “KamilarAndCooperData.csv” dataset, run a linear regression looking at log(HomeRange_km2) in relation to log(Body_mass_female_mean) and report your β coeffiecients (slope and intercept). **
+
+```{r}
+# to load the dataset
+library(curl)
+f <- curl("https://raw.githubusercontent.com/fuzzyatelin/fuzzyatelin.github.io/master/AN597_Fall17/KamilarAndCooperData.csv")
+d <- read.csv(f, header = TRUE, sep = ",", stringsAsFactors = TRUE)
+head(d)
+```
+
+```{r}
+# to run a linear regression
+m <- lm(data = d, log(HomeRange_km2) ~ log(Body_mass_female_mean))
+m
+```
+
+```{r}
+library(ggplot2)
+g <- ggplot(data = d, aes(x= log(Body_mass_female_mean), y = log(HomeRange_km2)))
+g <- g + geom_point()
+g <- g + geom_smooth(method = "lm")
+g
+```
+
+The slope is 1.036 and the intercept is -9.441
+
+
+** 2. Then, use bootstrapping to sample from your data 1000 times with replacement, each time fitting the same model and calculating the same coefficients. This generates a sampling distribution for each β coefficient. **
+
+```{r}
+set <- data.frame(NULL) # sets up a dummy variable to hold our 1000 simulations
+n <- 213 # there are 213 entries in the Kalimar and Cooper dataset
+for (i in 1:1000) { # simulate 1000 times
+  sample <- d[sample(nrow(d), n, replace = TRUE), ]
+  m <- lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = sample) # fitting the same model each time
+  coef <- m$coefficients # get the simulated intercepts and slopes
+  set <- rbind(set, coef) # make a dataframe to hold the simulated intercepts and slopes
+}
+colnames(set) <- c("Intercept", "Slope")
+head(set) 
+# this generates a sampling distribution for each B coefficient
+```
+
+* Estimate the standard error for each of your β coefficients as the standard deviation of the sampling distribution from your bootstrap and determine the 95% CI for each of your β coefficients based on the appropriate quantiles from your sampling distribution.
+
+```{r}
+df <- data.frame(cbind(sd(set$Intercept), sd(set$Slope), quantile(set$Intercept, 0.025), quantile(set$Intercept, 0.975), quantile(set$Slope, 0.025), quantile(set$Slope, 0.975)))
+colnames(df) <- c("SE_Intercept", "SE_Slope", "LowerCI_Intercept", "UpperCI_Intercept", "LowerCI_Slope", "UpperCI_Slope")
+df
+```
+
+* How does the former compare to the SE estimated from your entire dataset using the formula for standard error implemented in lm()?
+
+```{r}
+summary(m)$coef # to find the SE of the entire dataset
+```
+The SE from the entire dataset is shown above. The values are very similar to the bootstrapped SE.
+
+
+* How does the latter compare to the 95% CI estimated from your entire dataset?
+
+```{r}
+confint(m, level = 0.95)
+```
+
+These values are the 95% CI from the entire dataset with 213 observations.
+The CI values for the simulation with 1000 observations (above) are very similar.
+
+## Extra Credit Part 1
+
+** Write a FUNCTION that takes as its arguments a dataframe, “d”, a linear model, “m” (as a character string, e.g., “logHR~logBM”), a user-defined confidence interval level, “conf.level” (with default = 0.95), and a number of bootstrap replicates, “n” (with default = 1000). Your function should return a dataframe that includes: beta coefficient names; beta coefficients, standard errors, and upper and lower CI limits for the linear model based on your entire dataset; and mean beta coefficient estimates, SEs, and CI limits for those coefficients based on your bootstrap. **
+
+d = dataframe
+m = linear model
+conf.level = user-define confidence interval level (default = 0.95)
+n = number of bootstrap replicates (default = 1000)
+
+```{r}
+bootstrap <- function(d, m, conf.level = 0.95, n = 1000) {
+
+  # beta coefficients and SE based on entire dataset 
+  summary_m <- coef(summary(m))
+  beta_coef_names <- c("beta0", "beta1")
+  beta_coefs <- summary_m[ ,1]
+  SE <- summary_m[ ,2]
+  
+  # CI based on entire dataset
+  lowerCI <- confint(m, level = conf.level)[ ,1]
+  upperCI <- confint(m, level = conf.level)[ ,2]
+  
+  # Bootstrapping (modified from part 2)
+  set <- data.frame(NULL) # sets up a dummy variable to hold simulations
+  for (i in 1:n) { # simulate n times
+    sample <- d[sample(nrow(d), n, replace = TRUE), ]
+    m <- lm(m, data = d) # fitting the same model each time
+    coef <- m$coefficients # get the simulated intercepts and slopes
+    set <- rbind(set, coef) # make a dataframe to hold the simulated intercepts and slopes
+  }
+  
+  # Mean beta coefficients based on bootstrap
+  intercepts <- as.numeric(c(set$Intercept))
+  mean_intercept <- mean(intercepts)
+  
+  slopes <- as.numeric(c(set$Slopes))
+  mean_slope <- mean(slopes)
+  
+  # SE and CI based on bootstrap (from part 2)
+  df <- data.frame(cbind(sd(set$Intercept), sd(set$Slope), quantile(set$Intercept, 0.025), quantile(set$Intercept, 0.975), quantile(set$Slope, 0.025), quantile(set$Slope, 0.975)))
+colnames(df) <- c("SE_Intercept", "SE_Slope", "LowerCI_Intercept", "UpperCI_Intercept", "LowerCI_Slope", "UpperCI_Slope")
+  
+  return <- data.frame(beta_coef_names, beta_coefs, SE, lowerCI, upperCI, mean_intercept, mean_slope, df)
+  return
+}
+```
+
+Plugging back in data from this homework to test the function:
+```{r}
+library(curl)
+f <- curl("https://raw.githubusercontent.com/fuzzyatelin/fuzzyatelin.github.io/master/AN597_Fall17/KamilarAndCooperData.csv")
+
+d <- read.csv(f, header = TRUE, sep = ",", stringsAsFactors = TRUE)
+m <- lm(data = d, log(HomeRange_km2) ~ log(Body_mass_female_mean))
+conf.level <- 0.95
+n <- 1000
+
+bootstrap(d, m, conf.level = 0.95, n = 1000)
+```
+This is not working correctly. I'm not sure why the values from the boostrap are not showing up.
+
+## Extra Credit Part 2
+
+** Graph each beta value from the linear model and its corresponding mean value, lower CI and upper CI from a bootstrap as a function of number of bootstraps from 10 to 200 by 10s. HINT: the beta value from the linear model will be the same for all bootstraps and the mean beta value may not differ that much! **
+
+```{r}
+# beta coefficients based on entire dataset 
+summary_m <- coef(summary(m))
+beta_coefs <- summary_m[ ,1]
+
+set <- data.frame(NULL)
+
+for (i in seq(from = 10, to = 200, by = 10)) {
+  # finish this
+}
+
+g <- ggplot(data = set, aes(x = beta_coefs, y = mean_value))
+```
+I need to work on this more
